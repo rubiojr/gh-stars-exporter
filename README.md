@@ -2,6 +2,12 @@
 
 Export GitHub stars to a SQLite database.
 
+## Install
+
+```bash
+go install github.com/kevinpollet/gh-stars-exporter@latest
+```
+
 ## Usage
 
 ```bash
