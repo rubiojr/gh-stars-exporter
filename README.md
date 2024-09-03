@@ -5,7 +5,7 @@ Export GitHub stars to a SQLite database and JSON.
 ## Install
 
 ```bash
-go install github.com/kevinpollet/gh-stars-exporter@latest
+go install github.com/rubiojr/gh-stars-exporter@latest
 ```
 
 ## Usage
