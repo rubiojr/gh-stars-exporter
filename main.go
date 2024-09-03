@@ -28,6 +28,11 @@ type ConnectionURL struct {
 	Database string
 }
 
+type StarredRepo struct {
+	Repo      Repository `json:"repo"`
+	StarredAt time.Time     `json:"starred_at"`
+}
+
 type Repository struct {
 	ID              int       `json:"id" db:"id"`
 	Name            string    `json:"name" db:"name"`
@@ -43,6 +48,7 @@ type Repository struct {
 	IsTemplate      bool      `json:"is_template" db:"is_template"`
 	Topics          string    `db:"topics"`
 	Private         bool      `json:"private" db:"private"`
+	StarredAt       time.Time `json:"starred_at" db:"starred_at"`
 }
 
 var logger = log.NewWithOptions(os.Stderr, log.Options{
@@ -105,8 +111,10 @@ func main() {
 	updatedStars := 0
 	if !skipUpdate {
 		logger.Info("Fetching stars from github.com...")
-		err = fetchAllStarredRepos(token(), func(repos []Repository) error {
-			for _, repo := range repos {
+		err = fetchAllStarredRepos(token(), func(repos []StarredRepo) error {
+			for _, sr := range repos {
+				repo := sr.Repo
+				repo.StarredAt = sr.StarredAt
 				repo.Topics = strings.Join(repo.TopicList, ",")
 				if repo.Private && !storePrivate {
 					logger.Warnf("Skipping private repository %s", repo.FullName)
@@ -128,7 +136,6 @@ func main() {
 
 			return nil
 		})
-
 		logger.Infof("Updated stars: %d", updatedStars)
 	} else {
 		logger.Info("Skipping update (offline mode)")
@@ -142,7 +149,7 @@ func main() {
 	}
 }
 
-func fetchAllStarredRepos(githubToken string, iterator func([]Repository) error) error {
+func fetchAllStarredRepos(githubToken string, iterator func([]StarredRepo) error) error {
 	nextPageURL := "https://api.github.com/user/starred?per_page=100"
 
 	client := &http.Client{
@@ -157,6 +164,8 @@ func fetchAllStarredRepos(githubToken string, iterator func([]Repository) error)
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+githubToken)
+		req.Header.Set("Accept", "application/vnd.github.star+json")
+		//req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -168,7 +177,7 @@ func fetchAllStarredRepos(githubToken string, iterator func([]Repository) error)
 			return err
 		}
 
-		var repos []Repository
+		var repos []StarredRepo
 		if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
 			return err
 		}
@@ -183,7 +192,7 @@ func fetchAllStarredRepos(githubToken string, iterator func([]Repository) error)
 		if pageCount == "" {
 			pageCount = fmt.Sprintf("%d", currentPage)
 		}
-		logger.Debugf("Fetching stars... (page %d/%s)", currentPage, pageCount)
+		logger.Infof("Fetching stars... (page %d/%s)", currentPage, pageCount)
 		currentPage++
 	}
 

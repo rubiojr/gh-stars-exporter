@@ -11,5 +11,6 @@ CREATE TABLE IF NOT EXISTS starred_repos (
 	full_name TEXT,
 	topics TEXT,
 	is_template BOOLEAN,
-	private BOOLEAN
+	private BOOLEAN,
+	starred_at DATETIME
 );
