@@ -39,9 +39,13 @@ Export sample format:
     "stargazers_count": 504,
     "language": "Go",
     "full_name": "timelinize/timelinize",
-    "topics": null,
     "is_template": false,
-    "Topics": "archival,data-archiving,data-import,timeline",
+    "topics": [
+        "archival",
+        "data-archiving",
+        "data-import",
+        "timeline"
+    ],
     "private": false,
     "starred_at": "2024-08-12T17:55:48Z"
   },
@@ -56,9 +60,8 @@ Export sample format:
     "stargazers_count": 201,
     "language": "Svelte",
     "full_name": "stonith404/pocket-id",
-    "topics": null,
     "is_template": false,
-    "Topics": "idp,oidc,passkeys,self-hosted",
+    "topics": [],
     "private": false,
     "starred_at": "2024-08-16T21:11:44Z"
   }
