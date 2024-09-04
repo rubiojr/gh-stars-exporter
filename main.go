@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql/driver"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -24,36 +25,57 @@ import (
 //go:embed db/migrations/*.sql
 var fs embed.FS
 
+var logger = log.NewWithOptions(os.Stderr, log.Options{
+	ReportTimestamp: false,
+})
+
 type ConnectionURL struct {
 	Database string
 }
 
 type StarredRepo struct {
 	Repo      Repository `json:"repo"`
-	StarredAt time.Time     `json:"starred_at"`
+	StarredAt time.Time  `json:"starred_at"`
 }
 
 type Repository struct {
-	ID              int       `json:"id" db:"id"`
-	Name            string    `json:"name" db:"name"`
-	HTMLURL         string    `json:"html_url" db:"html_url"`
-	Description     string    `json:"description" db:"description"`
-	CreatedAt       time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
-	PushedAt        time.Time `json:"pushed_at" db:"pushed_at"`
-	StargazersCount int       `json:"stargazers_count" db:"stargazers_count"`
-	Language        string    `json:"language" db:"language"`
-	FullName        string    `json:"full_name" db:"full_name"`
-	TopicList       []string  `json:"topics"`
-	IsTemplate      bool      `json:"is_template" db:"is_template"`
-	Topics          string    `db:"topics"`
-	Private         bool      `json:"private" db:"private"`
-	StarredAt       time.Time `json:"starred_at" db:"starred_at"`
+	ID              int        `json:"id" db:"id"`
+	Name            string     `json:"name" db:"name"`
+	HTMLURL         string     `json:"html_url" db:"html_url"`
+	Description     string     `json:"description" db:"description"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
+	PushedAt        time.Time  `json:"pushed_at" db:"pushed_at"`
+	StargazersCount int        `json:"stargazers_count" db:"stargazers_count"`
+	Language        string     `json:"language" db:"language"`
+	FullName        string     `json:"full_name" db:"full_name"`
+	Topics          StringList `json:"topics" db:"topics"`
+	IsTemplate      bool       `json:"is_template" db:"is_template"`
+	Private         bool       `json:"private" db:"private"`
+	StarredAt       time.Time  `json:"starred_at" db:"starred_at"`
 }
 
-var logger = log.NewWithOptions(os.Stderr, log.Options{
-	ReportTimestamp: false,
-})
+type StringList []string
+
+func (sl StringList) Value() (driver.Value, error) {
+	return strings.Join(sl, ","), nil
+}
+
+func (sl *StringList) Scan(value interface{}) error {
+	if value == nil {
+		*sl = nil
+		return nil
+	}
+
+	if bv, err := driver.String.ConvertValue(value); err == nil {
+		if v, ok := bv.(string); ok {
+			*sl = strings.Split(v, ",")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("failed to scan StringList")
+}
 
 func jsonExport(sess db.Session) error {
 	stars := []*Repository{}
@@ -115,7 +137,6 @@ func main() {
 			for _, sr := range repos {
 				repo := sr.Repo
 				repo.StarredAt = sr.StarredAt
-				repo.Topics = strings.Join(repo.TopicList, ",")
 				if repo.Private && !storePrivate {
 					logger.Warnf("Skipping private repository %s", repo.FullName)
 					continue
