@@ -1,10 +1,12 @@
 package main
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +27,21 @@ import (
 //go:embed db/migrations/*.sql
 var fs embed.FS
 
+var readmeFiles = []string{
+	"README.md",
+	"readme.md",
+	"Readme.md",
+	"README",
+	"readme",
+	"Readme",
+	"README.rst",
+	"readme.rst",
+	"Readme.rst",
+	"README.org",
+	"Readme.org",
+	"readme.org",
+}
+
 var logger = log.NewWithOptions(os.Stderr, log.Options{
 	ReportTimestamp: false,
 })
@@ -39,20 +56,21 @@ type StarredRepo struct {
 }
 
 type Repository struct {
-	ID              int        `json:"id" db:"id"`
-	Name            string     `json:"name" db:"name"`
-	HTMLURL         string     `json:"html_url" db:"html_url"`
-	Description     string     `json:"description" db:"description"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
-	PushedAt        time.Time  `json:"pushed_at" db:"pushed_at"`
-	StargazersCount int        `json:"stargazers_count" db:"stargazers_count"`
-	Language        string     `json:"language" db:"language"`
-	FullName        string     `json:"full_name" db:"full_name"`
-	Topics          StringList `json:"topics" db:"topics"`
-	IsTemplate      bool       `json:"is_template" db:"is_template"`
-	Private         bool       `json:"private" db:"private"`
-	StarredAt       time.Time  `json:"starred_at" db:"starred_at"`
+	ID              int            `json:"id" db:"id"`
+	Name            string         `json:"name" db:"name"`
+	HTMLURL         string         `json:"html_url" db:"html_url"`
+	Description     string         `json:"description" db:"description"`
+	CreatedAt       time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at" db:"updated_at"`
+	PushedAt        time.Time      `json:"pushed_at" db:"pushed_at"`
+	StargazersCount int            `json:"stargazers_count" db:"stargazers_count"`
+	Language        string         `json:"language" db:"language"`
+	FullName        string         `json:"full_name" db:"full_name"`
+	Topics          StringList     `json:"topics" db:"topics"`
+	IsTemplate      bool           `json:"is_template" db:"is_template"`
+	Private         bool           `json:"private" db:"private"`
+	StarredAt       time.Time      `json:"starred_at" db:"starred_at"`
+	Readme          sql.NullString `json:"readme" db:"readme"`
 }
 
 type StringList []string
@@ -111,11 +129,22 @@ func token() string {
 	return token
 }
 
+var newStars int
+var updatedStars int
+
 func main() {
 	flag.Parse()
 
 	if debug {
 		logger.SetLevel(log.DebugLevel)
+	}
+
+	if getReadme {
+		logger.Info("Fetching READMEs enabled")
+	}
+
+	if jsonFlag {
+		logger.Info("JSON export enabled")
 	}
 
 	if skipUpdate && jsonFlag {
@@ -130,7 +159,7 @@ func main() {
 	}
 	stars := sess.Collection("starred_repos")
 
-	updatedStars := 0
+	newStars := 0
 	if !skipUpdate {
 		logger.Info("Fetching stars from github.com...")
 		err = fetchAllStarredRepos(token(), func(repos []StarredRepo) error {
@@ -143,20 +172,21 @@ func main() {
 				}
 
 				res := stars.Find(db.Cond{"id": repo.ID})
-				ok, err := res.Exists()
-				if ok || err != nil {
-					return nil
+				var r Repository
+				err := res.One(&r)
+				if err == nil {
+					if getReadme {
+						updateRepoReadme(r, res)
+					}
+					continue
 				}
 
-				updatedStars++
-				_, err = sess.Collection("starred_repos").Insert(repo)
-				if err != nil {
-					return err
-				}
+				return addNewRepo(repo, sess)
 			}
 
 			return nil
 		})
+		logger.Infof("New stars: %d", newStars)
 		logger.Infof("Updated stars: %d", updatedStars)
 	} else {
 		logger.Info("Skipping update (offline mode)")
@@ -168,6 +198,47 @@ func main() {
 			logger.Fatal("exporting to JSON", err)
 		}
 	}
+}
+
+func addNewRepo(repo Repository, sess db.Session) error {
+	if getReadme {
+		readme, err := getReadmeContent(repo)
+		if err != nil {
+			logger.Warnf("Failed to fetch README for %s: %s", repo.FullName, err)
+		} else {
+			repo.Readme = sql.NullString{String: readme, Valid: true}
+		}
+	}
+
+	_, err := sess.Collection("starred_repos").Insert(repo)
+	if err == nil {
+		newStars++
+	}
+	return err
+}
+
+func updateRepoReadme(r Repository, res db.Result) error {
+	logger.Debugf("Repository %s already exists in the database", r.FullName)
+
+	if r.Readme.Valid {
+		logger.Debug("README already exists")
+		return nil
+	}
+
+	logger.Debugf("Updating README for %s", r.FullName)
+	readme, err := getReadmeContent(r)
+	if err != nil {
+		logger.Warnf("Failed to fetch README for %s, ignoring: %s", r.FullName, err)
+		return nil
+	}
+
+	r.Readme = sql.NullString{String: readme, Valid: true}
+	err = res.Update(r)
+	if err == nil {
+		logger.Debugf("Updated README for %s", r.FullName)
+		updatedStars++
+	}
+	return err
 }
 
 func fetchAllStarredRepos(githubToken string, iterator func([]StarredRepo) error) error {
@@ -202,10 +273,6 @@ func fetchAllStarredRepos(githubToken string, iterator func([]StarredRepo) error
 		if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
 			return err
 		}
-		err = iterator(repos)
-		if err != nil {
-			return err
-		}
 
 		pagerLink := resp.Header.Get("Link")
 		nextPageURL = getNextPageURL(pagerLink)
@@ -214,6 +281,12 @@ func fetchAllStarredRepos(githubToken string, iterator func([]StarredRepo) error
 			pageCount = fmt.Sprintf("%d", currentPage)
 		}
 		logger.Infof("Fetching stars... (page %d/%s)", currentPage, pageCount)
+
+		err = iterator(repos)
+		if err != nil {
+			return err
+		}
+
 		currentPage++
 	}
 
@@ -260,6 +333,37 @@ func getPageCount(linkHeader string) string {
 	return ""
 }
 
+func getReadmeContent(repo Repository) (string, error) {
+	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/", repo.FullName)
+	client := &http.Client{Timeout: time.Second * 10}
+
+	for _, file := range readmeFiles {
+		req, err := http.NewRequest("GET", baseURL+file, nil)
+		if err != nil {
+			return "", err
+		}
+
+		req.Header.Set("Authorization", "Bearer "+token())
+		req.Header.Set("Accept", "application/vnd.github.v3.raw")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			content, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return "", err
+			}
+			return string(content), nil
+		}
+	}
+
+	return "", fmt.Errorf("no readme found for %s", repo.FullName)
+}
+
 func migrateDB() error {
 	d, err := iofs.New(fs, "db/migrations")
 	if err != nil {
@@ -270,6 +374,7 @@ func migrateDB() error {
 		return err
 	}
 	defer m.Close()
+	logger.Debug("Migrating database...")
 
 	err = m.Up()
 	if err != nil && err != migrate.ErrNoChange {
@@ -284,11 +389,13 @@ var debug bool
 var jsonFlag bool
 var storePrivate bool
 var skipUpdate bool
+var getReadme bool
 
 func init() {
 	flag.StringVar(&dbFile, "db", "data.ghstars", "Database file")
 	flag.BoolVar(&debug, "debug", false, "Enable debug mode")
 	flag.BoolVar(&skipUpdate, "skip-update", false, "Do not update the database (offline, use existing data)")
 	flag.BoolVar(&jsonFlag, "json", false, "JSON Export to stdout")
+	flag.BoolVar(&getReadme, "get-readme", false, "JSON Export to stdout")
 	flag.BoolVar(&storePrivate, "store-private", false, "Store private starred repositories")
 }
