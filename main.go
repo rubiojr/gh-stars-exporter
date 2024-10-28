@@ -31,6 +31,7 @@ var readmeFiles = []string{
 	"README.md",
 	"readme.md",
 	"Readme.md",
+	"README.MD",
 	"README",
 	"readme",
 	"Readme",
