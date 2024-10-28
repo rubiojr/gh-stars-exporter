@@ -30,8 +30,6 @@ var fs embed.FS
 var readmeFiles = []string{
 	"README.md",
 	"README.rst",
-	"docs/README.md",
-	".github/README.md",
 	"README.adoc",
 	"README.markdown",
 	"README.rdoc",
@@ -47,6 +45,8 @@ var readmeFiles = []string{
 	"README.org",
 	"Readme.org",
 	"readme.org",
+	"docs/README.md",
+	".github/README.md",
 	"docs/Readme.md",
 	"docs/readme.md",
 }
