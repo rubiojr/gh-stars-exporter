@@ -34,6 +34,7 @@ var readmeFiles = []string{
 	"README.markdown",
 	"README.rdoc",
 	"README.txt",
+	"README.mkd",
 	"README",
 	"readme.md",
 	"Readme.md",
