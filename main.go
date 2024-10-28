@@ -40,6 +40,9 @@ var readmeFiles = []string{
 	"README.org",
 	"Readme.org",
 	"readme.org",
+	"docs/README.md",
+	"docs/Readme.md",
+	"docs/readme.md",
 }
 
 var logger = log.NewWithOptions(os.Stderr, log.Options{
