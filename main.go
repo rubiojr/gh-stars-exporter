@@ -32,6 +32,7 @@ var readmeFiles = []string{
 	"README.rst",
 	"docs/README.md",
 	".github/README.md",
+	"README.adoc",
 	"README",
 	"readme.md",
 	"Readme.md",
